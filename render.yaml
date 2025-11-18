@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: app-cloner-backend
+    runtime: node
+    branch: main
+    rootDir: .
+    buildCommand: |
+      npm install
+      npx playwright install chromium
+    startCommand: npm start
+    envVars:
+      PLAYWRIGHT_BROWSERS_PATH: "0"
