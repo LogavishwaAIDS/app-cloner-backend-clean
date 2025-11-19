@@ -31,8 +31,7 @@ async function generateSummary(text) {
 
   try {
     const response = await fetch(
-      "https://api-inference.huggingface.co/models/sshleifer/distilbart-cnn-6-6"
-,
+      "https://router.huggingface.co/hf-inference/models/facebook/bart-large-cnn",
       {
         method: "POST",
         headers: {
@@ -40,16 +39,15 @@ async function generateSummary(text) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          inputs: text.slice(0, 9000), // limit to avoid payload errors
+          inputs: text.slice(0, 9000)
         }),
       }
     );
 
     const data = await response.json();
 
-    if (Array.isArray(data) && data[0]?.summary_text) {
-      return data[0].summary_text;
-    }
+    if (data?.generated_text) return data.generated_text;
+    if (Array.isArray(data) && data[0]?.summary_text) return data[0].summary_text;
 
     console.log("HF Response:", data);
     return "Summary unavailable.";
