@@ -2,107 +2,101 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
-import { crawlWebsite } from "./crawler/crawl.js";
-import { generateStaticSite } from "./generator/generateSite.js";
 import fetch from "node-fetch";
 
-async function summarizeText(text) {
-  const API_URL =
-    "https://api-inference.huggingface.co/models/facebook/bart-large-cnn";
-
-  const response = await fetch(API_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.HF_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      inputs: text,
-    }),
-  });
-
-  const data = await response.json();
-
-  return data[0]?.summary_text || "Summary unavailable.";
-}
-
+import { crawlWebsite } from "./crawler/crawl.js";
+import { generateStaticSite } from "./generator/generateSite.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const allowedOrigins = [
-  "http://localhost:5173",
-  "https://app-cloner-frontend.vercel.app"
-];
-
-app.use(
-  cors({
-    origin: allowedOrigins,
-    methods: ["GET", "POST"],
-    allowedHeaders: ["Content-Type"],
-  })
-);
-
+app.use(cors());
 app.use(express.json());
 
-// serve generated output under /preview
+// Serve output folder for previews
 app.use("/preview", express.static(path.join(__dirname, "output")));
 
-// health
+// Health check
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 
+// ------------------------------
+// 🔥 MAIN API — /api/clone
+// ------------------------------
 app.post("/api/clone", async (req, res) => {
   const { url, maxPages } = req.body;
 
-  if (!url)
+  if (!url) {
     return res.status(400).json({
       success: false,
-      error: "URL required",
+      error: "URL is required",
     });
+  }
 
   try {
-    // 1. Crawl website
+    // 1️⃣ Crawl website
     const crawlResult = await crawlWebsite(url, maxPages || 3);
 
-    // 2. Combine text from crawled pages for AI summary
-    const fullText = crawlResult.records
-      .map((page) => page.text || "")
-      .join("\n")
-      .slice(0, 5000); // Limit for HuggingFace model
-
-    // 3. Generate AI Summary using HuggingFace
-    const aiSummary = await summarizeText(fullText);
-
-    // 4. Generate static site content
+    // 2️⃣ Generate static site files
     const gen = await generateStaticSite(crawlResult);
 
-    // 5. Build preview URL
-    const previewUrl = `${req.protocol}://${req.get(
-      "host"
-    )}/preview/${gen.siteDirName}/index.html`;
+    const previewUrl = `${req.protocol}://${req.get("host")}/preview/${gen.siteDirName}/index.html`;
 
-    // 6. Return full result to frontend
+    // ------------------------------------------
+    // 3️⃣ AI SUMMARIZATION USING HUGGINGFACE
+    // ------------------------------------------
+    let summary = "Summary unavailable.";
+
+    try {
+      const allText = crawlResult.records
+        .map((p) => p.text || "")
+        .join("\n\n")
+        .slice(0, 8000);
+
+      const hfRes = await fetch(
+        "https://api-inference.huggingface.co/models/facebook/bart-large-cnn",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.HF_API_KEY}`,
+          },
+          body: JSON.stringify({ inputs: allText }),
+        }
+      );
+
+      const hfJson = await hfRes.json();
+
+      if (hfJson && hfJson[0] && hfJson[0].summary_text) {
+        summary = hfJson[0].summary_text;
+      }
+    } catch (err) {
+      console.error("❌ HuggingFace Error:", err.message);
+    }
+
+    // ------------------------------------------
+    // 4️⃣ RESPONSE SENT TO FRONTEND
+    // ------------------------------------------
     return res.json({
       success: true,
       message: "Cloned successfully",
       previewUrl,
-      summary: aiSummary,
+      summary, // ⭐ Frontend uses this
       details: {
         pages: crawlResult.records.length,
       },
     });
   } catch (err) {
-    console.error("Clone error:", err);
+    console.error("❌ Clone Error:", err);
     return res.status(500).json({
       success: false,
-      error: err.message || "Failed to clone",
+      error: err.message || "Failed to clone website",
     });
   }
 });
 
-
+// ------------------------------
+// START SERVER
+// ------------------------------
 const port = process.env.PORT || 5000;
 app.listen(port, () => console.log(`Backend running on port ${port}`));
-
-
