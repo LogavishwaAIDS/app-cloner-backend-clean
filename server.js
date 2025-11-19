@@ -20,42 +20,55 @@ app.use("/preview", express.static(path.join(__dirname, "output")));
 // Health check
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 
-// 🔥 HuggingFace Summarizer
-async function generateSummary(text) {
-  const HF_API_KEY = process.env.HF_API_KEY;
 
-  if (!HF_API_KEY) {
-    console.log("⚠️ No HF_API_KEY found in environment");
-    return "Summary unavailable.";
-  }
+// Strip HTML tags before summarizing
+function cleanHTML(html) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function generateSummary(text) {
+
+  const HF_API_KEY = process.env.HF_API_KEY;
+  if (!HF_API_KEY) return "Summary unavailable (missing API key).";
 
   try {
+    const cleaned = cleanHTML(text).slice(0, 3000); // IMPORTANT: safe limit
+
     const response = await fetch(
       "https://router.huggingface.co/hf-inference/models/facebook/bart-large-cnn",
       {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${HF_API_KEY}`,
+          Authorization: `Bearer ${HF_API_KEY}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          inputs: text.slice(0, 9000)
+          inputs: cleaned,
         }),
       }
     );
 
     const data = await response.json();
-
-    if (data?.generated_text) return data.generated_text;
-    if (Array.isArray(data) && data[0]?.summary_text) return data[0].summary_text;
-
     console.log("HF Response:", data);
+
+    // HF Router returns: { generated_text: ... }
+    if (data.generated_text) {
+      return data.generated_text;
+    }
+
     return "Summary unavailable.";
   } catch (err) {
-    console.error("❌ HuggingFace Summary Error:", err);
+    console.error("HF Summary Error:", err);
     return "Summary unavailable.";
   }
 }
+
+export { generateSummary };
 
 // 🧠 Main Clone Endpoint
 app.post("/api/clone", async (req, res) => {
