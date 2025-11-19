@@ -31,7 +31,8 @@ async function generateSummary(text) {
 
   try {
     const response = await fetch(
-      "https://api-inference.huggingface.co/models/facebook/bart-large-cnn",
+      "https://api-inference.huggingface.co/models/sshleifer/distilbart-cnn-6-6"
+,
       {
         method: "POST",
         headers: {
